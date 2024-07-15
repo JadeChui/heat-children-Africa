@@ -1,0 +1,263 @@
+---
+title: "Models for DHS heatwave research"
+author: "Jade"
+date: "2024-01-20"
+output: html_document
+---
+
+#package
+```{r}
+
+library(survival)
+library(splines)
+library(dplyr)
+library(tidyr)
+
+```
+
+#main models
+```{r}
+
+mf <- c("Surv(c.age, death) ~ hwd95 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSw2$c.age)), death) ~ hwd95 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(c.age, death) ~ hwd90 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSw2$c.age)), death) ~ hwd90 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(c.age, death) ~ hwd92 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSw2$c.age)), death) ~ hwd92 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(c.age, death) ~ hwd97 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSw2$c.age)), death) ~ hwd97 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)")
+
+names(mf) = c("mc95","ml95","mc90","ml90","mc92","ml92", "mc97", "ml97")
+
+mcoef = list()
+for(i in 1:length(mf)) {
+  f <- mf[i]
+  m <- coxph(as.formula(f),data = deathGPSw2)
+  
+  coef = summary(m)$coefficients %>%
+  as.data.frame() %>%
+  mutate(up = exp(coef+1.96*`se(coef)`), 
+         low = exp(coef-1.96*`se(coef)`)) %>%
+  rename(risk = `exp(coef)`, p = `Pr(>|z|)`) %>%
+  select(risk, low, up, p)
+  
+  coef$model=names(which(mf==f))
+  coef <- coef[1:12,]
+  mcoef[[i]] <- coef
+  }
+
+mcoef <- do.call(rbind, mcoef) %>% 
+  mutate(hw = substr(model, start = 3, stop = 4), 
+         mtype = substr(model, start = 1, stop = 2))
+
+write.csv(mcoef, "E:/Documents/Heat_ChildrenMortality_Case/heatwave/mcoef.csv")
+```
+
+#interaction models
+```{r}
+
+intf <- c("Surv(c.age, death) ~ hwd95*phwp95 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSwp2$c.age)), death) ~ hwd95*phwp95 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(c.age, death) ~ hwd90*phwp90 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSwp2$c.age)), death) ~ hwd90*phwp90 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(c.age, death) ~ hwd92*phwp92 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSwp2$c.age)), death) ~ hwd92*phwp92 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(c.age, death) ~ hwd97*phwp97 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)", 
+        "Surv(rep(1, length(deathGPSwp2$c.age)), death) ~ hwd97*phwp97 + temp + rh + precip + m.age + as.factor(twin2) + as.factor(c.sex) + pm25 + pm10 + co + so2 + no2 + ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + strata(caseid)")
+
+names(intf) = c("ic95","il95","ic90","il90","ic92","il92", "ic97", "il97")
+
+icoef = list()
+ipred = list()
+for(i in 1:length(intf)) {
+  f <- intf[i]
+  m <- coxph(as.formula(f),data = deathGPSwp2)
+  
+  coef = summary(m)$coefficients %>% 
+    as.data.frame() %>% 
+    select(1:3,5) %>%
+    slice(1:13,27) %>%
+    mutate(up = exp(coef+1.96*`se(coef)`), 
+         low = exp(coef-1.96*`se(coef)`)) %>%
+    rename(risk = `exp(coef)`, p = `Pr(>|z|)`) %>%
+    select(coef, risk, low, up, p)
+  
+  vcov = vcov(m) %>%
+    as.data.frame() %>%
+    select(1, 27) %>%
+    slice(1, 27)
+  
+  coef$model=names(which(intf==f))
+  icoef[[i]] <- coef
+  
+  pred <- seq(0, 110, by = 1) %>% as.data.frame()
+  colnames(pred) = 'hwd'
+  pred$phwd = 1-(pred$hwd/273)
+  pred$risk = exp(coef[1,1] + pred$phwd*coef[14,1])
+  pred$up = exp(coef[1,1] + pred$phwd*coef[14,1]
+               +1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$low = exp(coef[1,1] + pred$phwd*coef[14,1]
+                -1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$model=names(which(intf==f))
+  ipred[[i]] <- pred
+  }
+
+icoef <- do.call(rbind, icoef) %>% 
+  mutate(hw = substr(model, start = 3, stop = 4), 
+         mtype = substr(model, start = 1, stop = 2))
+
+ipred <- do.call(rbind, ipred) %>% 
+  mutate(hw = substr(model, start = 3, stop = 4), 
+         mtype = substr(model, start = 1, stop = 2))
+
+write.csv(icoef, "E:/Documents/Heat_ChildrenMortality_Case/heatwave/icoef.csv")
+
+```
+
+#interaction models: by country
+```{r}
+
+mcc <- coxph(Surv(c.age, death) ~ as.factor(cc):hwd95*phwp95 + 
+             m.age   + as.factor(twin2) + as.factor(c.sex)+ 
+             temp + +rh + precip + 
+             pm10 + no2 + co + pm25 + so2 +
+             ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + 
+             strata(caseid), data = deathGPSwp2)
+
+ipred_cc = list()
+icoef_cc = list()
+for(i in 1:length(cc)) {
+  
+  coef = summary(mcc)$coefficients %>% 
+  as.data.frame() %>% 
+  dplyr::select(1,2,5) %>%
+  slice(25+i, 39+i)
+  coef$cc = cc[i]
+  icoef_cc[[i]] <- coef
+  
+  vcov = vcov(mcc) %>%
+  as.data.frame() %>%
+  dplyr::select(25+i, 39+i) %>%
+  slice(25+i, 39+i)
+  
+  pred <- seq(0, 110, by = 1) %>% as.data.frame()
+  colnames(pred) = 'hwd'
+  pred$phwd = 1-(pred$hwd/273)
+  pred$risk = exp(coef[1,1] + pred$phwd*coef[2,1])
+  pred$up = exp(coef[1,1] + pred$phwd*coef[2,1]
+               +1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$low = exp(coef[1,1] + pred$phwd*coef[2,1]
+                -1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$cc = cc[i]
+  ipred_cc[[i]] <- pred
+  
+}
+
+ipred_cc <- do.call(rbind, ipred_cc) 
+icoef_cc <- do.call(rbind, icoef_cc)
+```
+
+#interaction models: by gender
+```{r}
+
+msx <- coxph(Surv(c.age, death) ~ as.factor(c.sex):hwd95*phwp95 + 
+             m.age   + as.factor(twin2) + as.factor(c.sex)+ 
+             temp + +rh + precip + 
+             pm10 + no2 + co + pm25 + so2 +
+             ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + 
+             strata(caseid), data = deathGPSwp2)
+
+sx = c("M","F")
+
+ipred_sx = list()
+icoef_sx = list()
+for(i in 1:length(sx)) {
+  
+  coef = summary(msx)$coefficients %>% 
+  as.data.frame() %>% 
+  dplyr::select(1,2,5) %>%
+  slice(25+i, 27+i)
+  coef$sx = sx[i]
+  icoef_sx[[i]] <- coef
+  
+  vcov = vcov(msx) %>%
+  as.data.frame() %>%
+  dplyr::select(25+i, 27+i) %>%
+  slice(25+i, 27+i)
+  
+  pred <- seq(0, 110, by = 1) %>% as.data.frame()
+  colnames(pred) = 'hwd'
+  pred$phwd = 1-(pred$hwd/273)
+  pred$risk = exp(coef[1,1] + pred$phwd*coef[2,1])
+  pred$up = exp(coef[1,1] + pred$phwd*coef[2,1]
+               +1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$low = exp(coef[1,1] + pred$phwd*coef[2,1]
+                -1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$sx = sx[i]
+  ipred_sx[[i]] <- pred
+  
+}
+
+ipred_sx <- do.call(rbind, ipred_sx) 
+icoef_sx <- do.call(rbind, icoef_sx)
+
+```
+
+#interaction models: by mean MHWF
+```{r}
+
+mhw95.2 <- hw95 %>%
+  filter(year >= 2000, year < 2021) %>%
+  left_join(deathGPSwp2 %>% ungroup %>% distinct(DHSID) %>%
+              mutate(l = rep(1,length(unique(deathGPSwp2$DHSID)))), 
+            by = "DHSID") %>%
+  drop_na(l) %>%
+  group_by(DHSID) %>%
+  dplyr::summarise(mhwd95 = mean(hwd)) 
+
+deathGPSwp2 <- deathGPSwp2 %>%
+  left_join(mhw95.2 %>% rename(hw7 = mhwd95), by = "DHSID") %>%
+  mutate(hw7 = if_else(hw7>7, "Y","N")) 
+
+mhw <- coxph(Surv(c.age, death) ~ as.factor(hw7):hwd95*phwp95 + 
+             m.age   + as.factor(twin2) + as.factor(c.sex)+ 
+             temp + +rh + precip + 
+             pm10 + no2 + co + pm25 + so2 +
+             ns(c.bir.y, df = 5) + as.factor(season) + ns(bord, df = 5) + 
+             strata(caseid), data = deathGPSwp2)
+
+hw = c("N","Y")
+
+ipred_hw = list()
+icoef_hw = list()
+for(i in 1:length(hw)) {
+  
+  coef = summary(mhw)$coefficients %>% 
+  as.data.frame() %>% 
+  dplyr::select(1,2,5) %>%
+  slice(25+i, 27+i)
+  coef$hw = hw[i]
+  icoef_hw[[i]] <- coef
+  
+  vcov = vcov(mhw) %>%
+  as.data.frame() %>%
+  dplyr::select(25+i, 27+i) %>%
+  slice(25+i, 27+i)
+  
+  pred <- seq(0, 110, by = 1) %>% as.data.frame()
+  colnames(pred) = 'hwd'
+  pred$phwd = 1-(pred$hwd/273)
+  pred$risk = exp(coef[1,1] + pred$phwd*coef[2,1])
+  pred$up = exp(coef[1,1] + pred$phwd*coef[2,1]
+               +1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$low = exp(coef[1,1] + pred$phwd*coef[2,1]
+                -1.96*sqrt(vcov[1,1]+ vcov[2,2]+2*vcov[1,2]))
+  pred$hw = hw[i]
+  ipred_hw[[i]] <- pred
+  
+}
+
+ipred_hw <- do.call(rbind, ipred_hw) 
+icoef_hw <- do.call(rbind, icoef_hw)
+
+```
