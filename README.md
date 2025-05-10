@@ -4,10 +4,10 @@ Interactive effect of pre- and post-birth heat exposure on under-five mortality 
 This study aims to enhance understanding of the effects of pre- and post-birth heat exposure on under-five mortality in sub-Saharan Africa. Using a family-based case-control approach with data from 29 countries, the research controls for household-level confounding factors and explores various analytical models to assess heat exposure effects on child mortality and pregnancy loss.
 
 # Research Objectives
-Main Model: Evaluate the association between monthly heat days and under-five mortality.
-Interaction Model: Assess the modification effect of gestational heat exposure.
-Heterogeneity Analysis: Examine differences in gestational heat effects by gender and regional heat frequency.
-Nonparametric Analysis: Explore nonlinear effects of heat exposure and test the hypothesis of in-utero selection.
+1. Main Model: Evaluate the association between monthly heat days and under-five mortality.
+2. Interaction Model: Assess the modification effect of gestational heat exposure.
+3. Heterogeneity Analysis: Examine differences in gestational heat effects by gender and regional heat frequency.
+4. Nonparametric Analysis: Explore nonlinear effects of heat exposure and test the hypothesis of in-utero selection.
 
 # Software Requirements
 R Statistical Software 4.1.0
