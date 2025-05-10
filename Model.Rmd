@@ -112,7 +112,7 @@ ipred <- do.call(rbind, ipred) %>%
 write.csv(icoef, "E:/Jade/DHS-heat/result/icoef.csv")
 ```
 
-nonlinear models
+nonparametric models
 ```{r}
 ths <- c("90", "92", "95", "97")
 
