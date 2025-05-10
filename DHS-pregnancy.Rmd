@@ -1,0 +1,145 @@
+---
+title: "DHS-pregnancy"
+author: "Jade TK Chui"
+date: "2025-02-20"
+output: html_document
+---
+
+packages
+```{r}
+library(haven)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(zoo)
+library(tidyr)
+library(sf)
+library(tidyverse)
+library(terra)
+library(plyr)
+```
+
+extract DHS SSA IR files
+```{r}
+codeSSA <- c("AO", "BJ", "BT", "BF", "BU", "CV", "CM", "CF", "TD", "KM", "CG", "CD", "CI", "EK", "ER", "ET", "GA", "GM", "GH", "GN", "KE", "LS", "LB", "MD", "MW", "ML", "MR", "MZ", "NM", "NI", "NG", "OS", "RW", "ST", "SN", "SL", "ZA", "SD", "TZ", "TG", "UG", "ZM", "ZW")
+
+pattern <- paste0("^(", paste(codeSSA, collapse = "|"), ")IR.{4}\\.zip$")
+
+zipF <- list.files(path = "E:/Data/DHS_2022", 
+                   pattern = pattern, ignore.case = TRUE, full.names = TRUE)
+
+filelist = list()
+for (i in 1:length(zipF))
+{list <- unzip(zipF[i], list = TRUE)[,1]
+listd <- list[str_detect(list, '.DTA|.dta')]
+filelist[i] <- listd}
+
+SSA = list()
+for (i in 1:length(zipF))
+{fpath <- unzip(zipF[i], filelist[[i]], exdir = 'E:/Jade/DHS-heat/temp/IRfile')
+SSA[[i]] <- fpath}
+```
+
+extract IR data of mothers with at least 1 birth and 1 pregnancy loss
+```{r}
+fpreg <- data.frame()
+
+chunk_size <- 20
+
+for(i in seq(1, length(SSA), by = chunk_size)){
+
+  end <- min(i + chunk_size - 1, length(SSA))
+  
+  current_chunk <- plyr::ldply(
+    .data = SSA[i:end],
+    .fun = haven::read_dta,
+    .progress = "text" 
+  )
+  
+  processed_chunk <- current_chunk %>%
+    drop_na(v011, v211, v228, v231, v233) %>%
+    dplyr::select(caseid, v000, v001, v002, v006, v007, v008, v009, v010, v011, 
+                v201, 
+                v228, v231, v233)
+  
+  fpreg <- dplyr::bind_rows(fpreg, processed_chunk)
+  
+  rm(current_chunk, processed_chunk)
+  gc()
+}
+
+fpreg <- fpreg %>%
+  filter(v233 <= 10) %>%
+  filter(!v231 == 9999, ! v231 == 9998, ! v231 == 9997) 
+
+fpreg$caseid <- sub("^\\s*(?=\\d)", "", fpreg$caseid, perl = TRUE)
+
+caseid <- fpreg %>% distinct(v000, caseid, v011)
+```
+
+find controls (living birth) from BR data
+```{r}
+SSA.B <- list.files(path = "E:/Jade/DHS-heat/temp/BRfile", ignore.case = TRUE, full.names = TRUE)
+
+control <- data.frame()
+
+chunk_size <- 20
+
+for(i in seq(1, length(SSA.B), by = chunk_size)){
+
+  end <- min(i + chunk_size - 1, length(SSA.B))
+  
+  current_chunk <- plyr::ldply(
+    .data = SSA.B[i:end],
+    .fun = haven::read_dta,
+    .progress = "text" 
+  )
+  
+  current_chunk <- current_chunk %>% 
+    dplyr::select(v000, caseid, v011, bord, b1, b2, b3, b5, b7)
+  
+  current_chunk$caseid <- sub("^\\s*(?=\\d)", "", current_chunk$caseid, perl = TRUE)
+  
+  processed_chunk <- caseid %>%
+    left_join(current_chunk, by = c("v000", "caseid", "v011")) %>%
+    drop_na(v000, caseid, v011, bord, b1, b2, b3, b5)
+  
+  control <- dplyr::bind_rows(control, processed_chunk)
+  
+  rm(current_chunk, processed_chunk)
+  gc()
+}
+```
+
+rename and calculate variables
+```{r}
+fpreg <- fpreg %>% 
+  mutate(ccphase = as.character(v000), clust = as.numeric(v001), hh = as.numeric(v002), 
+         int.m = as.numeric(v006), int.y = as.numeric(v007), int.cmc = as.numeric(v008), 
+         m.bir.m = as.numeric(v009), m.bir.y = as.numeric(v010), m.bir.cmc = as.numeric(v011),
+         nchild = as.numeric(v201), 
+         p.cmc = as.numeric(v231), pm = as.numeric(v233)) %>%
+  dplyr::select(caseid, ccphase:pm) %>%
+  mutate(m.bir.y = case_when(m.bir.y<30 ~ 2000+m.bir.y, m.bir.y>30 & m.bir.y<1000 ~ 1900+m.bir.y, m.bir.y>1000 ~ m.bir.y), 
+         int.y = case_when(int.y<30 ~ 2000+int.y, int.y>30 & int.y<1000 ~ 1900+int.y, int.y>1000 ~ int.y), 
+         p.y = as.integer((p.cmc - 1) / 12)+1900, 
+         p.m = p.cmc - ((p.y-1900) * 12), 
+         m.age = (p.cmc - m.bir.cmc)/12) %>% 
+  mutate(alive = NA_character_, death.age.m = NA_character_, ploss = 1, bord = NA_character_) %>% 
+  mutate(alive = as.numeric(alive), death.age.m = as.numeric(death.age.m), bord = as.numeric(bord))
+
+control <- control %>%
+  mutate(ccphase = as.character(v000), m.bir.cmc = as.numeric(v011), 
+         p.m = as.numeric(b1), p.y = as.numeric(b2), p.cmc = as.numeric(b3), alive = as.numeric(b5), death.age.m =as.numeric(b7)) %>%
+  left_join(fpreg %>% select(caseid:nchild, m.age), by = c("ccphase", "caseid", "m.bir.cmc")) %>%
+  select(caseid, bord, ccphase:m.age) %>%
+  mutate(pm = 10, ploss = 0)
+
+preg <- bind_rows(control, fpreg) %>% 
+  select(order(names(.))) 
+```
+
+export generated pregnancy loss data
+```{r}
+write.csv(preg, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/preg.csv')
+```

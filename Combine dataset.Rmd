@@ -1,0 +1,217 @@
+---
+title: "Combine dataset"
+author: "Jade TK Chui"
+date: "2025-02-23"
+output: html_document
+---
+
+package
+```{r}
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(data.table)
+library(stringr)
+```
+
+import generated child mortality, pregnancy loss & environmental data
+```{r}
+child <- read.csv("E:/Jade/DHS-heat/data/child.csv")
+preg <- read.csv("E:/Jade/DHS-heat/data/preg.csv")
+gps <- read.csv("E:/Jade/DHS-heat/data/gps.csv")
+env <- read.csv("E:/Jade/DHS-heat/data/env.csv")
+hwd <- read.csv("E:/Jade/DHS-heat/data/hwd.csv")
+```
+
+randomize control's exposure window
+```{r}
+setDT(child)
+
+child[, rd := sample(0:min(12, c.age), 1), by = seq_len(nrow(child))]
+child[, cmc := 12 * (year - 1900) + month]
+child[, cmc2 := ifelse(alive == 1, cmc - rd, cmc)]
+child[, c.age2 := c.age - rd]
+```
+
+merge DHS birth records with environmental data
+```{r}
+env <- env %>%
+  mutate(y = as.integer(str_sub(ym, start = 1, end = 4)), 
+         m = as.integer(str_sub(ym, start = 6, end = 7))) %>%
+  mutate(cmc = 12*(y-1900)+m)
+
+gps <- gps %>% mutate(lon = if_else(lon > 180, lon-360, lon))
+
+childw <- child %>% 
+  left_join(gps, by = c("int.y", "cc", "clust")) %>%
+  drop_na(DHSID)
+
+childw <- childw %>%
+  left_join(env %>% select(-ym), by = c('DHSID', 'cmc2'='cmc')) %>%
+  drop_na(pm25) %>%
+  dplyr::group_by(ccphase, caseid) %>%
+  filter(sum(alive)>0 & sum(alive)<n())
+
+childw <- childw %>%
+  mutate(
+    season = case_when(
+      abs(lat) <= 23.5 & lat >= 0 & c.bir.m %in% 5:10 ~ "Rainy",
+      abs(lat) <= 23.5 & lat >= 0 & c.bir.m %in% c(11,12,1,2,3,4) ~ "Dry",
+      abs(lat) <= 23.5 & lat < 0 & c.bir.m %in% 5:10 ~ "Dry",
+      abs(lat) <= 23.5 & lat < 0 & c.bir.m %in% c(11,12,1,2,3,4) ~ "Rainy",
+      
+      lat >= 0 & c.bir.m %in% c(1,2,12) ~ "Win",
+      lat >= 0 & c.bir.m %in% 3:5 ~ "Spr",
+      lat >= 0 & c.bir.m %in% 6:8 ~ "Sum",
+      lat >= 0 & c.bir.m %in% 9:11 ~ "Aut",
+      lat < 0 & c.bir.m %in% c(1,2,12) ~ "Sum",
+      lat < 0 & c.bir.m %in% 3:5 ~ "Aut",
+      lat < 0 & c.bir.m %in% 6:8 ~ "Win",
+      lat < 0 & c.bir.m %in% 9:11 ~ "Spr"
+    ),
+    pm25 = pm25*10^9, pm10 = pm10*10^9, co = co*10^9,
+    so2 = so2*10^9, no2 = no2*10^9, t2m = t2m - 273.15, tp = 10^3*tp
+  )
+```
+
+calculate gestational heatwave
+```{r}
+childwp <- childw %>%
+  mutate(c.bir.ym = as.POSIXct(c.bir.ym)) %>%
+  mutate(p.ym = c.bir.ym %m-% months(9), 
+         p.cmc = c.bir.cmc - 9) %>%
+  filter(!(p.ym < '2000-01-01')) %>%
+  mutate(alive = as.numeric(as.character(alive))) %>%
+  dplyr::group_by(ccphase, caseid) %>%
+  filter(sum(alive)>0 & sum(alive)<n())
+
+hwd <- hwd %>%
+  mutate(ym = make_date(year, month, 1), 
+         cmc = 12*(year-1900)+month)
+
+setDT(childwp)
+setDT(hwd)
+
+childwp <- hwd[childwp, 
+         on = .(DHSID = DHSID,  
+                cmc >= p.cmc,  
+                cmc < c.bir.cmc 
+    ),
+    allow.cartesian = TRUE
+][, 
+    .(
+        phwd97 = sum(hwd[th == 97], na.rm = TRUE),
+        phwd95 = sum(hwd[th == 95], na.rm = TRUE),
+        phwd92 = sum(hwd[th == 92], na.rm = TRUE),
+        phwd90 = sum(hwd[th == 90], na.rm = TRUE)
+    ),
+    by = .(ccphase, caseid, DHSID, bord, 
+           p.cmc = cmc, 
+           c.bir.cmc = cmc.1)
+][childwp, 
+  on =.(ccphase, caseid, DHSID, bord, p.cmc, c.bir.cmc), 
+                   nomatch = 0L]
+
+childwp <- childwp %>%
+  mutate(p = difftime(c.bir.ym, p.ym, units = 'days')) %>%
+  mutate(phwp97 = 1 - phwd97/as.numeric(p),
+         phwp95 = 1 - phwd95/as.numeric(p),
+         phwp92 = 1 - phwd92/as.numeric(p),
+         phwp90 = 1 - phwd90/as.numeric(p))
+```
+
+merge DHS pregnancy records with environmental data
+```{r}
+pregw <- preg %>% 
+  mutate(cc = str_sub(ccphase, start = 1, end = 2)) %>%
+  left_join(gps, by = c("int.y", "cc", "clust")) %>%
+  drop_na(DHSID)
+
+pregw <- pregw %>%
+  dplyr::mutate(p.ym = make_date(p.y, p.m, 1)) %>%
+  dplyr::mutate(f.ymd = if_else(pm > 0, p.ym - 4*7*pm, p.ym - 2*7)) %>%
+  dplyr::mutate(f.y = as.integer(str_sub(f.ymd, start = 1, end = 4)), 
+         f.m = as.integer(str_sub(f.ymd, start = 6, end = 7))) %>%
+  dplyr::mutate(f.cmc = (f.y - 1900) * 12 + f.m) %>%
+  left_join(env %>% dplyr::select(DHSID, cmc, pm25), by = c('DHSID', "f.cmc"='cmc')) %>%
+  drop_na(pm25) %>%
+  dplyr::select(-pm25) %>%
+  dplyr::group_by(ccphase, caseid, m.bir.cmc) %>%
+  filter(sum(ploss)>0 & sum(ploss)<n()) 
+
+setDT(pregw)
+setDT(env)
+
+pregw <- env[pregw, 
+         on = .(DHSID = DHSID,  
+                cmc >= f.cmc,  
+                cmc < p.cmc
+    ),
+    allow.cartesian = TRUE
+][, 
+    .(
+        co = sum(co),
+        no2 = sum(no2),
+        pm10 = sum(pm10),
+        pm25 = sum(pm25),
+        so2 = sum(so2),
+        t2m = sum(t2m),
+        tp = sum(tp),
+        rh = sum(rh),
+        hwd97 = sum(hwd97), 
+        hwd95 = sum(hwd95), 
+        hwd92 = sum(hwd92), 
+        hwd90 = sum(hwd90)
+    ),
+    by = .(ccphase, caseid, DHSID, bord, 
+           f.cmc = cmc, 
+           p.cmc = cmc.1)
+][pregw, 
+  on =.(ccphase, caseid, DHSID, bord, p.cmc, f.cmc), 
+                   nomatch = 0L]
+
+pregw <- pregw %>%
+  dplyr::mutate(across(co:hwd90, ~ if_else(pm > 0, .x / pm, .x))) %>%
+  dplyr::mutate(pm25 = pm25*10^9, pm10 = pm10*10^9, co = co*10^9, 
+         so2 = so2*10^9, no2 = no2*10^9, t2m = t2m - 273.15, tp = 10^3*tp)
+
+pregw <- pregw %>%
+  dplyr::mutate(season.f = case_when(
+      abs(lat) <= 23.5 & lat >= 0 & f.m %in% 5:10 ~ "Rainy",
+      abs(lat) <= 23.5 & lat >= 0 & f.m %in% c(11,12,1,2,3,4) ~ "Dry",
+      abs(lat) <= 23.5 & lat < 0 & f.m %in% 5:10 ~ "Dry",
+      abs(lat) <= 23.5 & lat < 0 & f.m %in% c(11,12,1,2,3,4) ~ "Rainy",
+      
+      lat >= 0 & f.m %in% c(1,2,12) ~ "Win",
+      lat >= 0 & f.m %in% 3:5 ~ "Spr",
+      lat >= 0 & f.m %in% 6:8 ~ "Sum",
+      lat >= 0 & f.m %in% 9:11 ~ "Aut",
+      lat < 0 & f.m %in% c(1,2,12) ~ "Sum",
+      lat < 0 & f.m %in% 3:5 ~ "Aut",
+      lat < 0 & f.m %in% 6:8 ~ "Win",
+      lat < 0 & f.m %in% 9:11 ~ "Spr"
+    ), 
+                season.p = case_when(
+      abs(lat) <= 23.5 & lat >= 0 & p.m %in% 5:10 ~ "Rainy",
+      abs(lat) <= 23.5 & lat >= 0 & p.m %in% c(11,12,1,2,3,4) ~ "Dry",
+      abs(lat) <= 23.5 & lat < 0 & p.m %in% 5:10 ~ "Dry",
+      abs(lat) <= 23.5 & lat < 0 & p.m %in% c(11,12,1,2,3,4) ~ "Rainy",
+      
+      lat >= 0 & p.m %in% c(1,2,12) ~ "Win",
+      lat >= 0 & p.m %in% 3:5 ~ "Spr",
+      lat >= 0 & p.m %in% 6:8 ~ "Sum",
+      lat >= 0 & p.m %in% 9:11 ~ "Aut",
+      lat < 0 & p.m %in% c(1,2,12) ~ "Sum",
+      lat < 0 & p.m %in% 3:5 ~ "Aut",
+      lat < 0 & p.m %in% 6:8 ~ "Win",
+      lat < 0 & p.m %in% 9:11 ~ "Spr")) %>%
+  dplyr::mutate(season = paste0(season.f, "-", season.p))
+```
+
+export combined data for analysis
+```{r}
+write.csv(childw, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/childw.csv')
+write.csv(childwp, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/childwp.csv')
+write.csv(pregw, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/pregw.csv')
+```
+

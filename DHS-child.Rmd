@@ -1,0 +1,97 @@
+---
+title: "DHS-child"
+author: "Jade TK Chui"
+date: "2025-02-19"
+output: html_document
+---
+
+packages
+```{r}
+library(haven)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(zoo)
+library(tidyr)
+library(sf)
+library(tidyverse)
+library(terra)
+library(plyr)
+```
+
+extract DHS SSA BR files
+```{r}
+codeSSA <- c("AO", "BJ", "BT", "BF", "BU", "CV", "CM", "CF", "TD", "KM", "CG", "CD", "CI", "EK", "ER", "ET", "GA", "GM", "GH", "GN", "KE", "LS", "LB", "MD", "MW", "ML", "MR", "MZ", "NM", "NI", "NG", "OS", "RW", "ST", "SN", "SL", "ZA", "SD", "TZ", "TG", "UG", "ZM", "ZW")
+
+pattern <- paste0("^(", paste(codeSSA, collapse = "|"), ")BR.{4}\\.zip$")
+
+zipF <- list.files(path = "E:/Data/DHS_2022", 
+                   pattern = pattern, ignore.case = TRUE, full.names = TRUE)
+
+filelist = list()
+for (i in 1:length(zipF))
+{list <- unzip(zipF[i], list = TRUE)[,1]
+listd <- list[str_detect(list, '.DTA|.dta')]
+filelist[i] <- listd}
+
+SSA = list()
+for (i in 1:length(zipF))
+{fpath <- unzip(zipF[i], filelist[[i]], exdir = 'E:/Jade/DHS-heat/temp/BRfile')
+SSA[[i]] <- fpath}
+```
+
+extract BR data of households with at least 1 living child and 1 dead child
+```{r}
+full <- ldply(.data = SSA, .fun = read_dta)
+
+fchild <- full %>%
+  drop_na(v011, b3) %>%
+  filter(b7<60 | b5==1) %>%
+  filter(b8<5 | b5==0) %>%
+  dplyr::group_by(ccphase, caseid) %>%
+  filter(n()>1) %>%
+  dplyr::select(caseid, v000, v001, v002, v006, v007, v009, v010, v011, 
+                bord, b0, b1, b2, b3, b4, b5, b7, b8) 
+
+fchild <- fchild %>%
+  dplyr::group_by(v000, caseid) %>%
+  filter(sum(b5)>0 & sum(b5)<n())
+```
+
+rename and calculate variables
+```{r}
+child <- fchild %>%
+  mutate(ccphase = as.character(v000), clust = as.numeric(v001), hh = as.numeric(v002), int.m = as.numeric(v006), int.y = as.numeric(v007), 
+         m.bir.m = as.numeric(v009), m.bir.y = as.numeric(v010), m.bir.cmc = as.numeric(v011), 
+         twin = as.numeric(b0), c.bir.m = as.numeric(b1), c.bir.y = as.numeric(b2), c.bir.cmc = as.numeric(b3), c.sex = as.factor(b4), alive = as.numeric(b5), death.age.m =as.numeric(b7), c.age = as.numeric(b8)) %>%
+  dplyr::select(caseid, bord, ccphase:c.age)
+
+child <- child %>%
+  mutate(int.y = case_when(int.y<30 ~ 2000+int.y, int.y>30 & int.y<1000 ~ 1900+int.y, int.y>1000 ~ int.y), 
+         m.bir.y = case_when(m.bir.y<30 ~ 2000+m.bir.y, m.bir.y>30 & m.bir.y<1000 ~ 1900+m.bir.y, m.bir.y>1000 ~ m.bir.y), 
+         c.bir.y = case_when(c.bir.y<30 ~ 2000+c.bir.y, c.bir.y>30 & c.bir.y<1000 ~ 1900+c.bir.y, c.bir.y>1000 ~ c.bir.y),
+         cc = str_sub(ccphase, start = 1, end = 2)) 
+
+child <- child %>%
+  mutate(c.bir.ym = make_date(c.bir.y, c.bir.m, 1)) %>%
+  mutate(death.ym = c.bir.ym %m+% months(death.age.m)) %>%
+  mutate(death.y = year(death.ym), 
+         death.m = month(death.ym)) %>%
+  mutate(year = as.numeric(case_when(alive==0 ~ as.character(death.y), 
+                          alive==1 ~  as.character(int.y))), 
+         month = as.numeric(case_when(alive==0 ~ as.character(death.m), 
+                          alive==1 ~  as.character(int.m)))) %>%
+  mutate(ym = make_date(year, month, 1)) %>%
+  mutate(death = if_else(alive==1, 0, 1), 
+         twin2 = case_when(twin==0 ~ 0, 
+                           twin>0 ~ 1),
+         m.age = (c.bir.cmc - m.bir.cmc)/12, 
+         c.age = if_else(alive==0, death.age.m,
+                         as.integer(interval(c.bir.ym, ym) %/% months(1)))) 
+```
+
+export generated child mortality data
+```{r}
+write.csv(child, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/child.csv')
+```
+

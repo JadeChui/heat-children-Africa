@@ -1,0 +1,396 @@
+---
+title: "DHS-GPS-weather"
+author: "Jade TK Chui"
+date: "2025-02-19"
+output: html_document
+---
+
+packages
+```{r}
+library(haven)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(zoo)
+library(tidyr)
+library(sf)
+library(tidyverse)
+library(terra)
+library(plyr)
+library(data.table)
+```
+
+extract DHS SSA GPS data
+```{r}
+pathGPS = "E:/Data/DHS_GPS/SubSaharanAfrica"
+
+zipGPS <- list.files(path = pathGPS, 
+                   pattern = '*.zip', ignore.case = TRUE, full.names = TRUE)
+
+tpathGPS = "E:/Jade/DHS-heat/temp/GPSfile"
+
+GPS = list()
+for (i in 1:length(zipGPS))
+{GPSpath <- unzip(zipGPS[i], exdir = tpathGPS)
+GPS[[i]] <- GPSpath}
+
+GPSlist = list()
+for (i in 1:length(zipGPS))
+{list <- unzip(zipGPS[i], list = TRUE)[,1]
+lists <- list[str_detect(list, '.shp$')]
+GPSlist[i] <- lists}
+
+GPSpath <- paste0(tpathGPS,'/', GPSlist)
+
+GPS.SSA <- ldply(GPSpath, read_sf)
+
+gps <- GPS.SSA %>% select(DHSID, DHSCC, DHSCLUST, DHSYEAR, LATNUM, LONGNUM) %>%
+  dplyr::rename(cc = DHSCC, clust = DHSCLUST, int.y = DHSYEAR, lat = LATNUM, lon = LONGNUM) %>%
+  distinct(DHSID, .keep_all = T) %>%
+  drop_na(DHSID, lat, lon) %>%
+  filter(!lat == lon) %>%
+  mutate(lon = if_else(lon<0, lon+360, lon))
+```
+
+match monthly 2m temperature with GPS data
+```{r}
+ym <- seq(as.Date('2000-01-01'), as.Date('2020-12-31'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_Weather_2000-2020/t2m.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+t2m <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "t2m") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly total precipitation with GPS data
+```{r}
+ym <- seq(as.Date('2000-01-01'), as.Date('2020-12-31'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_Weather_2000-2020/tp.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+tp <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "tp") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly relative humidity with GPS data
+```{r}
+ym <- seq(as.Date('2000-01-01'), as.Date('2020-12-31'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_Weather_2000-2020/rh.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+rh <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "rh") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly PM2.5 data with GPS data
+```{r}
+ym <- seq(as.Date('2003-01-01'), as.Date('2022-12-01'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_AirPollution_2003-2022/pm25.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+pm25 <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "pm25") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly PM10 data with GPS data
+```{r}
+ym <- seq(as.Date('2003-01-01'), as.Date('2022-12-01'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_AirPollution_2003-2022/pm10.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+pm10 <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "pm10") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly CO data with GPS data
+```{r}
+ym <- seq(as.Date('2003-01-01'), as.Date('2022-12-01'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_AirPollution_2003-2022/co.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+co <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "co") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly SO2 data with GPS data
+```{r}
+ym <- seq(as.Date('2003-01-01'), as.Date('2022-12-01'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_AirPollution_2003-2022/so2.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+so2 <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "so2") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match monthly NO2 data with GPS data
+```{r}
+ym <- seq(as.Date('2003-01-01'), as.Date('2022-12-01'), by = 'month')
+colname <- as.list(as.character(ym))
+
+r1 <- lapply('E:/Data/GLO_AirPollution_2003-2022/no2.nc', rast)
+s1 <- do.call(c, r1)
+s1
+
+e1 <- terra::extract(s1, vect(gps[,5:6]))
+e1 <- as.data.frame(e1)
+
+colnames(e1) <- c('ID',colname)
+e1 <- e1 %>%
+  mutate(DHSID = gps$DHSID)
+
+no2 <- e1 %>%
+  select(-ID) %>%
+  pivot_longer(!DHSID, names_to = "ym", values_to = "no2") %>% 
+  drop_na()
+
+rm(r1, s1, e1)
+```
+
+match daily temperature data  with GPS data
+```{r}
+ncF <- list.files(path = "E:/Jade/DHS-heat/temp/t2m.daily", 
+                   pattern = ".nc$", ignore.case = TRUE, full.names = TRUE)
+
+nclist <- list()
+for (nc in ncF) {
+  year <- as.numeric(sub(".*(\\d{4})\\.nc", "\\1", nc))
+  
+  start_date <- as.Date(paste0(year, "-01-01"))
+  end_date <- as.Date(paste0(year, "-12-31"))
+  ymd <- seq(start_date, end_date, by = 'day')
+  colname <- as.list(as.character(ymd))
+  
+  r1 <- lapply(nc, rast)
+  s1 <- do.call(c, r1)
+  
+  e1 <- terra::extract(s1, vect(gps[,5:6]))
+  e1 <- as.data.frame(e1)
+  
+  colnames(e1) <- c('ID', colname)
+  e1 <- e1 %>%
+    mutate(DHSID = gps$DHSID)
+  
+  t2md <- e1 %>%
+    select(-ID) %>%
+    pivot_longer(!DHSID, names_to = "ymd", values_to = "t2md") %>% 
+    drop_na()
+  
+  nclist[[nc]] <- t2md
+}
+
+t2md <- bind_rows(nclist)
+rm(nclist, r1, e1, s1)
+```
+
+calculate monthly heat days
+```{r}
+thresholds <- c(97, 95, 92, 90)
+days <- as.numeric(as.Date("2020-12-31") - as.Date("1999-12-31"))
+setDT(t2md)  
+
+hwdlist <- list()
+
+for (threshold in thresholds) {
+  
+  n <- as.integer((1 - threshold / 100) * days)
+  
+  hw <- t2md[, .SD[order(-t2md)[1:n]], 
+          by = DHSID, 
+          .SDcols = c("t2md", "ymd")]
+  
+  setorder(hw, DHSID, ymd)
+  
+  hwd <- hw[,.(hwd = .N), 
+            by = .(DHSID,
+                   year = as.integer(substr(ymd, 1, 4)), 
+                   month = as.integer(substr(ymd, 6, 7)))
+  ][, th := threshold]
+  
+  hwdlist[[as.character(threshold)]] <- hwd
+}
+
+hwd <- rbindlist(hwdlist)
+rm(hwdlist, hw, t2md)
+```
+
+calculate heat days
+```{r}
+thresholds <- c(97, 95, 92, 90)
+days <- as.numeric(as.Date("2020-12-31") - as.Date("1999-12-31"))
+setDT(t2md)  
+
+hwlist <- list()
+for (threshold in thresholds) {
+  n <- as.integer((1 - threshold / 100) * days)
+  
+  hw <- t2md[, .SD[order(-t2md)[1:n]], 
+          by = DHSID, 
+          .SDcols = c("t2md", "ymd")]
+  
+  setorder(hw, DHSID, ymd)
+  
+  hw <- hw[, .(DHSID, t2md, ymd, th = threshold)]
+  
+  hwlist[[as.character(threshold)]] <- hw
+}
+
+hw <- rbindlist(hwlist)
+rm(hwlist, t2md)
+```
+
+merge all weather data
+```{r}
+w <- t2m %>%
+  left_join(tp, by = c("DHSID", "ym")) %>%
+  left_join(rh, by = c("DHSID", "ym")) %>%
+  left_join(hwd %>% ungroup() %>%
+              filter(th == 97) %>%
+              mutate(ym = as.character(make_date(year, month, 1))) %>% 
+              select(-year, -month, -th) %>%
+              dplyr::rename(hwd97 = hwd), by =c("DHSID", "ym")) %>%
+  left_join(hwd %>% ungroup() %>%
+              filter(th == 95) %>%
+              mutate(ym = as.character(make_date(year, month, 1))) %>% 
+              select(-year, -month, -th) %>%
+              dplyr::rename(hwd95 = hwd), by =c("DHSID", "ym")) %>%
+  left_join(hwd %>% ungroup() %>%
+              filter(th == 92) %>%
+              mutate(ym = as.character(make_date(year, month, 1))) %>% 
+              select(-year, -month, -th) %>%
+              dplyr::rename(hwd92 = hwd), by =c("DHSID", "ym")) %>%
+  left_join(hwd %>% ungroup() %>%
+              filter(th == 90) %>%
+              mutate(ym = as.character(make_date(year, month, 1))) %>% 
+              select(-year, -month, -th) %>%
+              dplyr::rename(hwd90 = hwd), by =c("DHSID", "ym")) %>%
+  mutate(hwd97 = if_else(is.na(hwd97) == T, 0, hwd97), 
+         hwd95 = if_else(is.na(hwd95) == T, 0, hwd95), 
+         hwd92 = if_else(is.na(hwd92) == T, 0, hwd92), 
+         hwd90 = if_else(is.na(hwd90) == T, 0, hwd90))
+
+rm(t2m, tp, rh)
+```
+
+merge all air pollution data
+```{r}
+p <- co %>%
+  left_join(no2, by = c("DHSID", "ym")) %>%
+  left_join(pm10, by = c("DHSID", "ym")) %>%
+  left_join(pm25, by = c("DHSID", "ym")) %>%
+  left_join(so2, by = c("DHSID", "ym"))
+
+rm(co, no2, pm10, pm25, so2)
+```
+
+merge all environmental data
+```{r}
+env <- p %>%
+  full_join(w, by = c("DHSID", "ym")) %>%
+  drop_na()
+```
+
+export generated environmental data matched with DHS cluster ID
+```{r}
+write.csv(gps, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/gps.csv')
+write.csv(env, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/env.csv')
+write.csv(hwd, row.names = FALSE, file = 'E:/Jade/DHS-heat/data/hwd.csv')
+```
+
